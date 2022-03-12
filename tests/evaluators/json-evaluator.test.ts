@@ -1,11 +1,79 @@
 import cuid from 'cuid'
-import { Result } from '../src'
-import JsonEvaluator from '../src/rules-engine/evaluators/json-evaluator'
+import { Result } from '../../src'
+import JsonEvaluator from '../../src/rules-engine/evaluators/json-evaluator'
+import { Severity } from '../../src/rules-engine/types'
+
+const providerName = 'aws'
+const entityName = 'CIS'
+const ruleMetadata = {
+  id: cuid(),
+  description: 'none',
+  title: 'Mocked Automated Rule',
+  rationale: "raison d'être",
+  audit: 'evaluate schemaA',
+  remediation: 'fix the schemaA',
+  references: [],
+  severity: Severity.HIGH,
+}
+const jsonRule = {
+  ...ruleMetadata,
+  gql: `{
+    querySchemaA {
+      id
+      __typename
+      value
+    }
+  }`,
+  resource: 'querySchemaA[*]',
+  conditions: {
+    path: '@.value',
+    equal: false,
+  },
+}
+
+const compositeRule = {
+  ...ruleMetadata,
+  queries: [
+    {
+      gql: `{
+        querySchemaA {
+          id
+          __typename
+          value
+        }
+      }`,
+      resource: 'querySchemaA[*]',
+      conditions: {
+        path: '@.value',
+        equal: false,
+      },
+    },
+    {
+      gql: `{
+        querySchemaB {
+          id
+          __typename
+          value
+        }
+      }`,
+      resource: 'querySchemaB[*]',
+      conditions: {
+        path: '@.value',
+        equal: true,
+      },
+    },
+  ],
+}
+
+export default {
+  jsonRule,
+  compositeRule,
+}
 
 describe('JsonEvaluator', () => {
   let evaluator
   beforeEach(() => {
-    evaluator = new JsonEvaluator()
+    evaluator = new JsonEvaluator(providerName, entityName)
   })
 
   test('should accept all rules that have a conditions field', () => {
@@ -420,5 +488,26 @@ describe('JsonEvaluator', () => {
     )
 
     expect(finding.result).toBe(Result.PASS)
+  })
+
+  it('should return a processed rules mutations array', async () => {
+    const resourceId = cuid()
+    const resourceType = 'schemaA'
+    await evaluator.evaluateSingleResource(jsonRule, {
+      resource: {
+        id: resourceId,
+        __typename: resourceType,
+        value: 'automated',
+      },
+    })
+    const mutations = evaluator.prepareMutations()
+    const [atuomatedMutation] = mutations
+
+    expect(mutations.length).toBe(1)
+    expect(atuomatedMutation).toBeDefined()
+    expect(atuomatedMutation.data instanceof Object).toBeTruthy()
+    expect(atuomatedMutation.data.filter.id.eq).toBe(resourceId)
+    expect(atuomatedMutation.name).toBe(`${providerName}${entityName}Findings`)
+    expect(atuomatedMutation.mutation).toContain(`update${resourceType}`)
   })
 })
